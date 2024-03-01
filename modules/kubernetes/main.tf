@@ -39,6 +39,11 @@ resource "aws_eks_cluster" "cluster" {
   depends_on = [aws_iam_role_policy_attachment.amazon_eks_cluster_policy]
 }
 
+
+data "aws_eks_cluster_auth" "cluster" {
+  name = var.cluster_name
+}
+
 # Node Group
 
 resource "aws_iam_role" "nodes" {
@@ -114,7 +119,7 @@ resource "aws_eks_node_group" "private_nodes" {
   }
 }
 
-# OpenID Connect Identity Provider for the ALB Controller
+# OpenID Connect Identity Provider for drivers
 
 # Retrieve the TLS certificate for the EKS cluster and assigns it to the variable data.tls_certificate.eks
 data "tls_certificate" "eks_tls_cert" {
@@ -128,6 +133,17 @@ resource "aws_iam_openid_connect_provider" "eks_oidc" {
   url             = aws_eks_cluster.cluster.identity[0].oidc[0].issuer
 }
 
+# AWS load balancer controller installation
+
+# AWS load balancer controller IAM policy
+# Template from https://github.com/kubernetes-sigs/aws-load-balancer-controller/docs/install/iam_policy.json
+# Use the policy from the branch of the version you are installing.
+resource "aws_iam_policy" "aws_load_balancer_controller" {
+  policy = file("${path.module}/iam_policy.json")
+  name   = "AWSLoadBalancerController"
+}
+
+# AWS load balancer controller trusted entities
 data "aws_iam_policy_document" "aws_load_balancer_controller_assume_role_policy" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
@@ -146,24 +162,17 @@ data "aws_iam_policy_document" "aws_load_balancer_controller_assume_role_policy"
   }
 }
 
+# AWS load balancer controller IAM Role
 resource "aws_iam_role" "aws_load_balancer_controller" {
   assume_role_policy = data.aws_iam_policy_document.aws_load_balancer_controller_assume_role_policy.json
-  name               = "aws-load-balancer-controller"
+  name               = "aws-load-balancer-controller-role"
 }
 
-# IAM policy template from https://github.com/kubernetes-sigs/aws-load-balancer-controller/docs/install/iam_policy.json
-# Only use policy from the branch of the version you are installing.
-resource "aws_iam_policy" "aws_load_balancer_controller" {
-  policy = file("${path.module}/iam_policy.json")
-  name   = "AWSLoadBalancerController"
-}
-
+# AWS load balancer controller policy attachment
 resource "aws_iam_role_policy_attachment" "aws_load_balancer_controller_attach" {
-  role       = aws_iam_role.aws_load_balancer_controller.name
   policy_arn = aws_iam_policy.aws_load_balancer_controller.arn
+  role       = aws_iam_role.aws_load_balancer_controller.name
 }
-
-# ALB Controller
 
 resource "helm_release" "aws_load_balancer_controller" {
   name             = "aws-load-balancer-controller"
@@ -172,10 +181,6 @@ resource "helm_release" "aws_load_balancer_controller" {
   namespace        = "kube-system"
   version          = "1.4.1"
   create_namespace = true
-
-  values = [
-    file("${path.module}/ingress.yaml")
-  ]
 
   set {
     name  = "clusterName"
@@ -203,7 +208,143 @@ resource "helm_release" "aws_load_balancer_controller" {
   ]
 }
 
-# ArgoCD
+# Secrets store CSI driver installation and AWS Secrets Manager integration
+
+# IAM role for the Kubernetes service account to access database credentials using AWS Secrets Manager
+
+# App deployment namespace
+resource "kubernetes_namespace" "web-app" {
+  metadata {
+    name = "web-app"
+  }
+}
+
+locals {
+  secrets_sa = "web-app-sa"
+}
+
+# Secrets store CSI IAM policy
+resource "aws_iam_policy" "secrets_csi" {
+  name = "secrets-csi-policy"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ]
+        Resource = [var.rds_credentials]
+      }
+    ]
+  })
+}
+
+# Secrets store CSI trusted entities
+data "aws_iam_policy_document" "secrets_csi_assume_role_policy" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    effect  = "Allow"
+
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(aws_iam_openid_connect_provider.eks_oidc.url, "https://", "")}:sub"
+      values   = ["system:serviceaccount:${kubernetes_namespace.web-app.metadata[0].name}:${local.secrets_sa}"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(aws_iam_openid_connect_provider.eks_oidc.url, "https://", "")}:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    principals {
+      identifiers = [aws_iam_openid_connect_provider.eks_oidc.arn]
+      type        = "Federated"
+    }
+  }
+}
+
+# Secrets store CSI IAM Role
+resource "aws_iam_role" "secrets_csi" {
+  assume_role_policy = data.aws_iam_policy_document.secrets_csi_assume_role_policy.json
+  name               = "secrets-csi-role"
+}
+
+# Secrets store CSI policy Attachment
+resource "aws_iam_role_policy_attachment" "secrets_csi" {
+  policy_arn = aws_iam_policy.secrets_csi.arn
+  role       = aws_iam_role.secrets_csi.name
+}
+
+resource "helm_release" "secrets_store_csi_driver" {
+  depends_on = [helm_release.aws_load_balancer_controller]
+  name       = "secrets-store-csi-driver"
+  namespace  = "kube-system"
+  repository = "https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts"
+  chart      = "secrets-store-csi-driver"
+  version    = "1.3.1"
+
+  set {
+    name  = "syncSecret.enabled"
+    value = true
+  }
+}
+
+resource "helm_release" "secrets_store_csi_driver_provider_aws" {
+  depends_on = [helm_release.aws_load_balancer_controller]
+  name       = "aws-secrets-manager"
+  namespace  = "kube-system"
+  repository = "https://aws.github.io/secrets-store-csi-driver-provider-aws"
+  chart      = "secrets-store-csi-driver-provider-aws"
+  version    = "0.3.0"
+}
+
+# Secrets store CSI Kubernetes manifests
+
+# Service Account
+resource "kubectl_manifest" "secrets_csi_sa" {
+  depends_on = [kubernetes_namespace.web-app]
+  yaml_body  = <<YAML
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${local.secrets_sa}
+  namespace: web-app
+  annotations:
+    eks.amazonaws.com/role-arn: ${aws_iam_role.secrets_csi.arn}
+YAML
+}
+
+# Secret Provider Class
+resource "kubectl_manifest" "secret_csi_spc" {
+  depends_on = [helm_release.secrets_store_csi_driver_provider_aws]
+  yaml_body  = <<YAML
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: web-app-spc
+  namespace: web-app
+spec:
+  provider: aws
+  parameters:
+    objects: |
+      - objectName: ${var.secrets_name}
+        objectType: secretsmanager
+        objectAlias: db-secrets
+  secretObjects:
+    - secretName: db-secrets-vol
+      type: Opaque
+      data:
+        - objectName: db-secrets
+          key: DSN
+YAML
+}
+
+# ArgoCD installation
 
 resource "helm_release" "argocd" {
   depends_on       = [helm_release.aws_load_balancer_controller]
