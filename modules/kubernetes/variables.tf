@@ -19,6 +19,10 @@ variable "subnets" {
   })
 }
 
-#variable "region" {
-#  type = string
-#}
+variable "rds_credentials" {
+  type = string
+}
+
+variable "secrets_name" {
+  type = string
+}

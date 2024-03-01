@@ -4,7 +4,7 @@ data "aws_availability_zones" "available" {}
 
 locals {
   vpc_cidr = "10.0.0.0/16"
-  asz = slice(data.aws_availability_zones.available.names, 0, 4)
+  asz      = slice(data.aws_availability_zones.available.names, 0, 4)
 }
 
 resource "aws_vpc" "eks_vpc" {
@@ -21,9 +21,9 @@ resource "aws_vpc" "eks_vpc" {
 
 resource "aws_subnet" "private_a" {
   vpc_id            = aws_vpc.eks_vpc.id
-#  cidr_block        = cidrsubnet(local.vpc_cidr, 8, 1)
+  #  cidr_block        = cidrsubnet(local.vpc_cidr, 8, 1)
   cidr_block        = "10.0.1.0/24"
-#  availability_zone = "us-west-2a"
+  #  availability_zone = "us-west-2a"
   availability_zone = local.asz[0]
 
   tags = {
@@ -35,7 +35,7 @@ resource "aws_subnet" "private_a" {
 
 resource "aws_subnet" "private_b" {
   vpc_id            = aws_vpc.eks_vpc.id
-#  cidr_block        = cidrsubnet(local.vpc_cidr, 8, 2)
+  #  cidr_block        = cidrsubnet(local.vpc_cidr, 8, 2)
   cidr_block        = "10.0.2.0/24"
   availability_zone = local.asz[1]
 
@@ -48,7 +48,6 @@ resource "aws_subnet" "private_b" {
 
 resource "aws_subnet" "public_a" {
   vpc_id                  = aws_vpc.eks_vpc.id
-#  cidr_block              = cidrsubnet(local.vpc_cidr, 8, 101)
   cidr_block              = "10.0.101.0/24"
   availability_zone       = local.asz[2]
   map_public_ip_on_launch = true
@@ -62,7 +61,6 @@ resource "aws_subnet" "public_a" {
 
 resource "aws_subnet" "public_b" {
   vpc_id                  = aws_vpc.eks_vpc.id
-#  cidr_block              = cidrsubnet(local.vpc_cidr, 8, 102)
   cidr_block              = "10.0.102.0/24"
   availability_zone       = local.asz[3]
   map_public_ip_on_launch = true
@@ -71,6 +69,26 @@ resource "aws_subnet" "public_b" {
     "Name"                                      = "public-b"
     "kubernetes.io/role/elb"                    = "1"
     "kubernetes.io/cluster/${var.cluster_name}" = "owned"
+  }
+}
+
+resource "aws_subnet" "database_a" {
+  vpc_id            = aws_vpc.eks_vpc.id
+  cidr_block        = "10.0.10.0/24"
+  availability_zone = local.asz[0]
+
+  tags = {
+    "Name" = "database-a"
+  }
+}
+
+resource "aws_subnet" "database_b" {
+  vpc_id            = aws_vpc.eks_vpc.id
+  cidr_block        = "10.0.11.0/24"
+  availability_zone = local.asz[1]
+
+  tags = {
+    "Name" = "database-b"
   }
 }
 
@@ -149,4 +167,32 @@ resource "aws_route_table_association" "public_a" {
 resource "aws_route_table_association" "public_b" {
   subnet_id      = aws_subnet.public_b.id
   route_table_id = aws_route_table.public.id
+}
+
+# Database Security Group
+
+resource "aws_security_group" "allow-db-access" {
+  name   = "rds_sg"
+  vpc_id = aws_vpc.eks_vpc.id
+
+  ingress {
+    from_port   = "3306"
+    to_port     = "3306"
+    protocol    = "tcp"
+    cidr_blocks = [
+      aws_subnet.private_a.cidr_block, aws_subnet.private_b.cidr_block, aws_subnet.public_a.cidr_block,
+      aws_subnet.public_b.cidr_block
+    ]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "rds_sg"
+  }
 }
