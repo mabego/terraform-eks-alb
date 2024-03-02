@@ -1,3 +1,8 @@
+module "dsn" {
+  source = "./modules/dns"
+  namespace = var.namespace
+}
+
 module "networking" {
   source    = "./modules/networking"
   namespace = var.namespace
@@ -20,4 +25,6 @@ module "kubernetes" {
   subnets = module.networking.subnets
   rds_credentials = module.database.rds_credentials
   secrets_name = module.database.secrets_name
+  subdomain = module.dsn.subdomain
+  zone_id = module.dsn.zone_id
 }

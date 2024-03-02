@@ -26,3 +26,11 @@ variable "rds_credentials" {
 variable "secrets_name" {
   type = string
 }
+
+variable "subdomain" {
+  type = string
+}
+
+variable "zone_id" {
+  type = string
+}
