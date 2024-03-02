@@ -119,7 +119,9 @@ resource "aws_eks_node_group" "private_nodes" {
   }
 }
 
-# OpenID Connect Identity Provider for drivers
+################################################################################
+# Create OpenID Connect Identity Provider for drivers
+################################################################################
 
 # Retrieve the TLS certificate for the EKS cluster and assigns it to the variable data.tls_certificate.eks
 data "tls_certificate" "eks_tls_cert" {
@@ -133,7 +135,9 @@ resource "aws_iam_openid_connect_provider" "eks_oidc" {
   url             = aws_eks_cluster.cluster.identity[0].oidc[0].issuer
 }
 
+################################################################################
 # AWS load balancer controller installation
+################################################################################
 
 # AWS load balancer controller IAM policy
 # Template from https://github.com/kubernetes-sigs/aws-load-balancer-controller/docs/install/iam_policy.json
@@ -165,7 +169,7 @@ data "aws_iam_policy_document" "aws_load_balancer_controller_assume_role_policy"
 # AWS load balancer controller IAM Role
 resource "aws_iam_role" "aws_load_balancer_controller" {
   assume_role_policy = data.aws_iam_policy_document.aws_load_balancer_controller_assume_role_policy.json
-  name               = "aws-load-balancer-controller-role"
+  name               = "aws-load-balancer-controller"
 }
 
 # AWS load balancer controller policy attachment
@@ -188,11 +192,6 @@ resource "helm_release" "aws_load_balancer_controller" {
   }
 
   set {
-    name  = "image.tag"
-    value = "v2.7.1"
-  }
-
-  set {
     name  = "serviceAccount.name"
     value = "aws-load-balancer-controller"
   }
@@ -208,9 +207,9 @@ resource "helm_release" "aws_load_balancer_controller" {
   ]
 }
 
+################################################################################
 # Secrets store CSI driver installation and AWS Secrets Manager integration
-
-# IAM role for the Kubernetes service account to access database credentials using AWS Secrets Manager
+################################################################################
 
 # App deployment namespace
 resource "kubernetes_namespace" "web-app" {
@@ -268,7 +267,7 @@ data "aws_iam_policy_document" "secrets_csi_assume_role_policy" {
   }
 }
 
-# Secrets store CSI IAM Role
+# Secrets store CSI IAM Role for the Kubernetes service account to access database credentials using AWS Secrets Manager
 resource "aws_iam_role" "secrets_csi" {
   assume_role_policy = data.aws_iam_policy_document.secrets_csi_assume_role_policy.json
   name               = "secrets-csi-role"
@@ -344,7 +343,96 @@ spec:
 YAML
 }
 
+################################################################################
+# ExternalDNS installation
+################################################################################
+
+# ExternalDNS IAM access policy
+resource "aws_iam_policy" "external_dns" {
+  name = "external-dns-access-policy"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "route53:ChangeResourceRecordSets"
+        ]
+        Resource = ["arn:aws:route53:::hostedzone/*"] # TODO update to the hosted zone created in the dns module
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "route53:ListHostedZones",
+          "route53:ListResourceRecordSets"
+        ]
+        Resource = ["*"]
+      }
+    ]
+  })
+}
+
+# ExternalDNS trusted entities
+data "aws_iam_policy_document" "external_dns_assume_role_policy" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    effect  = "Allow"
+
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(aws_iam_openid_connect_provider.eks_oidc.url, "https://", "")}:sub"
+      values   = ["system:serviceaccount:kube-system:external-dns"]
+    }
+
+    principals {
+      identifiers = [aws_iam_openid_connect_provider.eks_oidc.arn]
+      type        = "Federated"
+    }
+  }
+}
+
+# ExternalDNS IAM Role
+resource "aws_iam_role" "external_dns" {
+  assume_role_policy = data.aws_iam_policy_document.external_dns_assume_role_policy.json
+  name               = "external-dns-role"
+}
+
+# ExternalDNS policy attachment
+resource "aws_iam_role_policy_attachment" "external_dns" {
+  policy_arn = aws_iam_policy.external_dns.arn
+  role       = aws_iam_role.external_dns.name
+}
+
+resource "helm_release" "external_dns" {
+  name       = "external-dns"
+  namespace  = "kube-system"
+  repository = "https://kubernetes-sigs.github.io/external-dns"
+  chart      = "external-dns"
+  version    = "1.14.3"
+
+  # Default values
+  # https://github.com/kubernetes-sigs/external-dns/blob/master/charts/external-dns/values.yaml
+  values = [
+    <<EOF
+serviceAccount:
+  name: "external-dns"
+  annotations:
+    "eks.amazonaws.com/role-arn": ${aws_iam_role.external_dns.arn}
+policy: sync
+txtOwnerId: ${var.zone_id}
+domainFilters: [${var.subdomain}]
+provider: aws
+extraArgs:
+  - --aws-zone-type=public
+EOF
+  ]
+}
+
+################################################################################
 # ArgoCD installation
+################################################################################
 
 resource "helm_release" "argocd" {
   depends_on       = [helm_release.aws_load_balancer_controller]
