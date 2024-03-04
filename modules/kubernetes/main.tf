@@ -29,10 +29,8 @@ resource "aws_eks_cluster" "cluster" {
 
   vpc_config {
     subnet_ids = [
-      var.subnets.private_a,
-      var.subnets.private_b,
-      var.subnets.public_a,
-      var.subnets.public_b,
+      var.subnets.cluster_a,
+      var.subnets.cluster_b,
     ]
   }
 
@@ -78,15 +76,15 @@ resource "aws_iam_role_policy_attachment" "amazon_ec2_container_registry_read_on
   role       = aws_iam_role.nodes.name
 }
 
-resource "aws_eks_node_group" "private_nodes" {
+resource "aws_eks_node_group" "cluster_nodes" {
   cluster_name    = aws_eks_cluster.cluster.name
   version         = var.cluster_version
-  node_group_name = "private-nodes"
+  node_group_name = "cluster-nodes"
   node_role_arn   = aws_iam_role.nodes.arn
 
   subnet_ids = [
-    var.subnets.private_a,
-    var.subnets.private_b,
+    var.subnets.cluster_a,
+    var.subnets.cluster_b,
   ]
 
   capacity_type  = "ON_DEMAND"
@@ -119,9 +117,9 @@ resource "aws_eks_node_group" "private_nodes" {
   }
 }
 
-################################################################################
+###############################################################################################
 # Create OpenID Connect Identity Provider for drivers
-################################################################################
+###############################################################################################
 
 # Retrieve the TLS certificate for the EKS cluster and assigns it to the variable data.tls_certificate.eks
 data "tls_certificate" "eks_tls_cert" {
@@ -135,9 +133,9 @@ resource "aws_iam_openid_connect_provider" "eks_oidc" {
   url             = aws_eks_cluster.cluster.identity[0].oidc[0].issuer
 }
 
-################################################################################
+###############################################################################################
 # AWS load balancer controller installation
-################################################################################
+###############################################################################################
 
 # AWS load balancer controller IAM policy
 # Template from https://github.com/kubernetes-sigs/aws-load-balancer-controller/docs/install/iam_policy.json
@@ -157,6 +155,12 @@ data "aws_iam_policy_document" "aws_load_balancer_controller_assume_role_policy"
       test     = "StringEquals"
       variable = "${replace(aws_iam_openid_connect_provider.eks_oidc.url, "https://", "")}:sub"
       values   = ["system:serviceaccount:kube-system:aws-load-balancer-controller"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(aws_iam_openid_connect_provider.eks_oidc.url, "https://", "")}:aud"
+      values   = ["sts.amazonaws.com"]
     }
 
     principals {
@@ -183,7 +187,7 @@ resource "helm_release" "aws_load_balancer_controller" {
   repository       = "https://aws.github.io/eks-charts"
   chart            = "aws-load-balancer-controller"
   namespace        = "kube-system"
-  version          = "1.4.1"
+  version          = "1.7.1"
   create_namespace = true
 
   set {
@@ -202,14 +206,14 @@ resource "helm_release" "aws_load_balancer_controller" {
   }
 
   depends_on = [
-    aws_eks_node_group.private_nodes,
+    aws_eks_node_group.cluster_nodes,
     aws_iam_role_policy_attachment.aws_load_balancer_controller_attach
   ]
 }
 
-################################################################################
-# Secrets store CSI driver installation and AWS Secrets Manager integration
-################################################################################
+###############################################################################################
+# Secrets store CSI driver installation and AWS Secrets Manager integration for app deployment
+###############################################################################################
 
 # App deployment namespace
 resource "kubernetes_namespace" "web-app" {
@@ -343,9 +347,9 @@ spec:
 YAML
 }
 
-################################################################################
+###############################################################################################
 # ExternalDNS installation
-################################################################################
+###############################################################################################
 
 # ExternalDNS IAM access policy
 resource "aws_iam_policy" "external_dns" {
@@ -360,13 +364,14 @@ resource "aws_iam_policy" "external_dns" {
         Action = [
           "route53:ChangeResourceRecordSets"
         ]
-        Resource = ["arn:aws:route53:::hostedzone/*"] # TODO update to the hosted zone created in the dns module
+        Resource = [var.hosted_zone_arn]
       },
       {
         Effect = "Allow"
         Action = [
           "route53:ListHostedZones",
-          "route53:ListResourceRecordSets"
+          "route53:ListResourceRecordSets",
+          "route53:ListTagsForResource"
         ]
         Resource = ["*"]
       }
@@ -396,7 +401,7 @@ data "aws_iam_policy_document" "external_dns_assume_role_policy" {
 # ExternalDNS IAM Role
 resource "aws_iam_role" "external_dns" {
   assume_role_policy = data.aws_iam_policy_document.external_dns_assume_role_policy.json
-  name               = "external-dns-role"
+  name               = "external-dns"
 }
 
 # ExternalDNS policy attachment
@@ -430,9 +435,9 @@ EOF
   ]
 }
 
-################################################################################
+###############################################################################################
 # ArgoCD installation
-################################################################################
+###############################################################################################
 
 resource "helm_release" "argocd" {
   depends_on       = [helm_release.aws_load_balancer_controller]

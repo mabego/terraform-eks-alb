@@ -12,10 +12,8 @@ variable "cluster_version" {
 
 variable "subnets" {
   type = object({
-    private_a = string
-    private_b = string
-    public_a = string
-    public_b = string
+    cluster_a = string
+    cluster_b = string
   })
 }
 
@@ -32,5 +30,9 @@ variable "subdomain" {
 }
 
 variable "zone_id" {
+  type = string
+}
+
+variable "hosted_zone_arn" {
   type = string
 }

@@ -1,9 +1,7 @@
 output "subnets" {
   value = {
-    private_a = aws_subnet.private_a.id
-    private_b = aws_subnet.private_b.id
-    public_a = aws_subnet.public_a.id
-    public_b = aws_subnet.public_b.id
+    cluster_a = aws_subnet.cluster_a.id
+    cluster_b = aws_subnet.cluster_b.id
     database_a = aws_subnet.database_a.id
     database_b = aws_subnet.database_b.id
   }

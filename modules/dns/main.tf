@@ -49,19 +49,11 @@ resource "aws_route53_record" "cert" {
 resource "aws_route53domains_registered_domain" "domain" {
   domain_name = var.domain
 
-  name_server {
-    name = aws_route53_zone.subdomain.name_servers[0]
-  }
+  dynamic "name_server" {
+    for_each = aws_route53_zone.subdomain.name_servers
 
-  name_server {
-    name = aws_route53_zone.subdomain.name_servers[1]
-  }
-
-  name_server {
-    name = aws_route53_zone.subdomain.name_servers[2]
-  }
-
-  name_server {
-    name = aws_route53_zone.subdomain.name_servers[3]
+    content {
+      name = name_server.value
+    }
   }
 }
