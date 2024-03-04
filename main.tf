@@ -27,4 +27,5 @@ module "kubernetes" {
   secrets_name = module.database.secrets_name
   subdomain = module.dsn.subdomain
   zone_id = module.dsn.zone_id
+  hosted_zone_arn = module.dsn.hosted_zone_arn
 }

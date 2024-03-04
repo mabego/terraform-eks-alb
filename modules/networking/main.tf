@@ -19,7 +19,8 @@ resource "aws_vpc" "eks_vpc" {
 
 # Subnets
 
-resource "aws_subnet" "private_a" {
+# Cluster subnets are private but will be used with an external load balancer
+resource "aws_subnet" "cluster_a" {
   vpc_id            = aws_vpc.eks_vpc.id
   #  cidr_block        = cidrsubnet(local.vpc_cidr, 8, 1)
   cidr_block        = "10.0.1.0/24"
@@ -27,21 +28,23 @@ resource "aws_subnet" "private_a" {
   availability_zone = local.asz[0]
 
   tags = {
-    "Name"                                      = "private-a"
-    "kubernetes.io/role/internal-elb"           = "1"
+    "Name"                                      = "cluster-a"
+    #    "kubernetes.io/role/internal-elb"           = "1"
+    "kubernetes.io/role/elb"                    = "1"
     "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   }
 }
 
-resource "aws_subnet" "private_b" {
+resource "aws_subnet" "cluster_b" {
   vpc_id            = aws_vpc.eks_vpc.id
   #  cidr_block        = cidrsubnet(local.vpc_cidr, 8, 2)
   cidr_block        = "10.0.2.0/24"
   availability_zone = local.asz[1]
 
   tags = {
-    "Name"                                      = "private-b"
-    "kubernetes.io/role/internal-elb"           = "1"
+    "Name"                                      = "cluster-b"
+    #    "kubernetes.io/role/internal-elb"           = "1"
+    "kubernetes.io/role/elb"                    = "1"
     "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   }
 }
@@ -55,7 +58,7 @@ resource "aws_subnet" "public_a" {
   tags = {
     "Name"                                      = "public-a"
     "kubernetes.io/role/elb"                    = "1"
-    "kubernetes.io/cluster/${var.cluster_name}" = "owned"
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   }
 }
 
@@ -68,7 +71,7 @@ resource "aws_subnet" "public_b" {
   tags = {
     "Name"                                      = "public-b"
     "kubernetes.io/role/elb"                    = "1"
-    "kubernetes.io/cluster/${var.cluster_name}" = "owned"
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   }
 }
 
@@ -123,7 +126,7 @@ resource "aws_nat_gateway" "nat" {
 
 # Routes
 
-resource "aws_route_table" "private" {
+resource "aws_route_table" "cluster" {
   vpc_id = aws_vpc.eks_vpc.id
 
   route {
@@ -149,14 +152,14 @@ resource "aws_route_table" "public" {
   }
 }
 
-resource "aws_route_table_association" "private_a" {
-  subnet_id      = aws_subnet.private_a.id
-  route_table_id = aws_route_table.private.id
+resource "aws_route_table_association" "cluster_a" {
+  subnet_id      = aws_subnet.cluster_a.id
+  route_table_id = aws_route_table.cluster.id
 }
 
-resource "aws_route_table_association" "private_b" {
-  subnet_id      = aws_subnet.private_b.id
-  route_table_id = aws_route_table.private.id
+resource "aws_route_table_association" "cluster_b" {
+  subnet_id      = aws_subnet.cluster_b.id
+  route_table_id = aws_route_table.cluster.id
 }
 
 resource "aws_route_table_association" "public_a" {
@@ -179,10 +182,7 @@ resource "aws_security_group" "allow-db-access" {
     from_port   = "3306"
     to_port     = "3306"
     protocol    = "tcp"
-    cidr_blocks = [
-      aws_subnet.private_a.cidr_block, aws_subnet.private_b.cidr_block, aws_subnet.public_a.cidr_block,
-      aws_subnet.public_b.cidr_block
-    ]
+    cidr_blocks = [aws_subnet.cluster_a.cidr_block, aws_subnet.cluster_b.cidr_block]
   }
 
   egress {

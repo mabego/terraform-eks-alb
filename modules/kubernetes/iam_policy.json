@@ -38,7 +38,8 @@
                 "elasticloadbalancing:DescribeTargetGroups",
                 "elasticloadbalancing:DescribeTargetGroupAttributes",
                 "elasticloadbalancing:DescribeTargetHealth",
-                "elasticloadbalancing:DescribeTags"
+                "elasticloadbalancing:DescribeTags",
+                "elasticloadbalancing:DescribeTrustStores"
             ],
             "Resource": "*"
         },
@@ -180,6 +181,25 @@
         {
             "Effect": "Allow",
             "Action": [
+                "elasticloadbalancing:ModifyLoadBalancerAttributes",
+                "elasticloadbalancing:SetIpAddressType",
+                "elasticloadbalancing:SetSecurityGroups",
+                "elasticloadbalancing:SetSubnets",
+                "elasticloadbalancing:DeleteLoadBalancer",
+                "elasticloadbalancing:ModifyTargetGroup",
+                "elasticloadbalancing:ModifyTargetGroupAttributes",
+                "elasticloadbalancing:DeleteTargetGroup"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "Null": {
+                    "aws:ResourceTag/elbv2.k8s.aws/cluster": "false"
+                }
+            }
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
                 "elasticloadbalancing:AddTags"
             ],
             "Resource": [
@@ -196,25 +216,6 @@
                 },
                 "Null": {
                     "aws:RequestTag/elbv2.k8s.aws/cluster": "false"
-                }
-            }
-        },
-        {
-            "Effect": "Allow",
-            "Action": [
-                "elasticloadbalancing:ModifyLoadBalancerAttributes",
-                "elasticloadbalancing:SetIpAddressType",
-                "elasticloadbalancing:SetSecurityGroups",
-                "elasticloadbalancing:SetSubnets",
-                "elasticloadbalancing:DeleteLoadBalancer",
-                "elasticloadbalancing:ModifyTargetGroup",
-                "elasticloadbalancing:ModifyTargetGroupAttributes",
-                "elasticloadbalancing:DeleteTargetGroup"
-            ],
-            "Resource": "*",
-            "Condition": {
-                "Null": {
-                    "aws:ResourceTag/elbv2.k8s.aws/cluster": "false"
                 }
             }
         },
