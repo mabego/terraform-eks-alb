@@ -446,28 +446,44 @@ resource "helm_release" "argocd" {
   create_namespace = true
   chart            = "argo-cd"
   repository       = "https://argoproj.github.io/argo-helm"
-  version          = "5.35.0"
+  version          = "6.6.0"
   cleanup_on_fail  = true
 
-#  values = [
-#    <<EOF
-#dex:
-#  enabled: false
-#server:
-#  extraArgs:
-#    - --insecure
-#ingress:
-#  enabled: true
-#  annotations:
-#    alb.ingress.kubernetes.io/scheme: internet-facing
-#    alb.ingress.kubernetes.io/target-type: ip
-#    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
-#    alb.ingress.kubernetes.io/ssl-redirect: '443'
-#  ingressClassName: alb
-#  hostname: "${var.argocd_subdomain}.${var.domain}"
-#
-#EOF
-#  ]
+  #  values = [
+  #    <<EOF
+  #  global:
+  #    domain: "${var.argocd_subdomain}.${var.domain}"
+  #  dex:
+  #    enabled: false
+  #  server:
+  #    extraArgs:
+  #      - --insecure
+  #  ingress:
+  #    enabled: true
+  #    controller: aws
+  #    annotations:
+  #      alb.ingress.kubernetes.io/scheme: internet-facing
+  #      alb.ingress.kubernetes.io/target-type: ip
+  #      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+  #      alb.ingress.kubernetes.io/ssl-redirect: '443'
+  #    ingressClassName: alb
+  #    extraRules:
+  #      - http:
+  #          paths:
+  #            - path: /
+  #              pathType: Prefix
+  #              backend:
+  #                service:
+  #                  name: argocd-server
+  #                  port:
+  #                    number: 80
+  #  EOF
+  #  ]
+
+  set {
+    name  = "global.domain"
+    value = "${var.argocd_subdomain}.${var.domain}"
+  }
 
   set {
     name  = "dex.enabled"
