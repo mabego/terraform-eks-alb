@@ -1,6 +1,0 @@
-dex:
-  enabled: false
-
-server:
-  extraArgs:
-    - --insecure

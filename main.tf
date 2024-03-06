@@ -25,7 +25,9 @@ module "kubernetes" {
   subnets = module.networking.subnets
   rds_credentials = module.database.rds_credentials
   secrets_name = module.database.secrets_name
-  subdomain = module.dsn.subdomain
+  domain = module.dsn.domain
+  app_subdomain = module.dsn.app_subdomain
+  argocd_subdomain = module.dsn.argocd_subdomain
   zone_id = module.dsn.zone_id
   hosted_zone_arn = module.dsn.hosted_zone_arn
 }
