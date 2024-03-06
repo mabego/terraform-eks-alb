@@ -427,7 +427,7 @@ serviceAccount:
     "eks.amazonaws.com/role-arn": ${aws_iam_role.external_dns.arn}
 policy: sync
 txtOwnerId: ${var.zone_id}
-domainFilters: [${var.subdomain}]
+domainFilters: [${var.domain}]
 provider: aws
 extraArgs:
   - --aws-zone-type=public
@@ -440,13 +440,72 @@ EOF
 ###############################################################################################
 
 resource "helm_release" "argocd" {
-  depends_on       = [helm_release.aws_load_balancer_controller]
+  depends_on       = [helm_release.aws_load_balancer_controller, helm_release.external_dns]
   name             = "argocd"
   namespace        = "argocd"
   create_namespace = true
   chart            = "argo-cd"
   repository       = "https://argoproj.github.io/argo-helm"
   version          = "5.35.0"
-  values           = [file("${path.module}/argocd.yaml")]
   cleanup_on_fail  = true
+
+#  values = [
+#    <<EOF
+#dex:
+#  enabled: false
+#server:
+#  extraArgs:
+#    - --insecure
+#ingress:
+#  enabled: true
+#  annotations:
+#    alb.ingress.kubernetes.io/scheme: internet-facing
+#    alb.ingress.kubernetes.io/target-type: ip
+#    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+#    alb.ingress.kubernetes.io/ssl-redirect: '443'
+#  ingressClassName: alb
+#  hostname: "${var.argocd_subdomain}.${var.domain}"
+#
+#EOF
+#  ]
+
+  set {
+    name  = "dex.enabled"
+    value = false
+  }
+
+  set {
+    name  = "server.extraArgs"
+    value = "{--insecure}"
+  }
 }
+
+#resource "kubectl_manifest" "argocd" {
+#  depends_on = [helm_release.argocd]
+#  yaml_body  = <<YAML
+#apiVersion: networking.k8s.io/v1
+#kind: Ingress
+#metadata:
+#  name: argocd
+#  namespace: argocd
+#  annotations:
+#    alb.ingress.kubernetes.io/scheme: internet-facing
+#    alb.ingress.kubernetes.io/target-type: ip
+#    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+#    alb.ingress.kubernetes.io/ssl-redirect: '443'
+#spec:
+#  ingressClassName: alb
+#  rules:
+#    - host: "${var.argocd_subdomain}.${var.domain}"
+#      http:
+#        paths:
+#          - path: /
+#            pathType: Prefix
+#            backend:
+#              service:
+#                name: argocd-server
+#                port:
+#                  number: 80
+#
+#YAML
+#}

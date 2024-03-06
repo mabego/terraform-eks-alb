@@ -25,7 +25,15 @@ variable "secrets_name" {
   type = string
 }
 
-variable "subdomain" {
+variable "domain" {
+  type = string
+}
+
+variable "app_subdomain" {
+  type = string
+}
+
+variable "argocd_subdomain" {
   type = string
 }
 
