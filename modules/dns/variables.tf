@@ -3,7 +3,8 @@ variable "namespace" {
 }
 
 variable "domain" {
-  default = "colawarrior.com" # update to use your domain
+  type = string
+#  default = "example.com" # update to use your domain
 }
 
 variable "app_subdomain" {
