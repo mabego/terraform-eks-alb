@@ -117,9 +117,9 @@ resource "aws_eks_node_group" "cluster_nodes" {
   }
 }
 
-###############################################################################################
+################################################################################
 # Create OpenID Connect Identity Provider for drivers
-###############################################################################################
+################################################################################
 
 # Retrieve the TLS certificate for the EKS cluster and assigns it to the variable data.tls_certificate.eks
 data "tls_certificate" "eks_tls_cert" {
@@ -133,9 +133,9 @@ resource "aws_iam_openid_connect_provider" "eks_oidc" {
   url             = aws_eks_cluster.cluster.identity[0].oidc[0].issuer
 }
 
-###############################################################################################
+################################################################################
 # AWS load balancer controller installation
-###############################################################################################
+################################################################################
 
 # AWS load balancer controller IAM policy
 # Template from https://github.com/kubernetes-sigs/aws-load-balancer-controller/docs/install/iam_policy.json
@@ -211,9 +211,10 @@ resource "helm_release" "aws_load_balancer_controller" {
   ]
 }
 
-###############################################################################################
-# Secrets store CSI driver installation and AWS Secrets Manager integration for app deployment
-###############################################################################################
+################################################################################
+# Secrets store CSI driver installation
+# and AWS Secrets Manager integration for app deployment
+################################################################################
 
 # App deployment namespace
 resource "kubernetes_namespace" "web-app" {
@@ -347,9 +348,9 @@ spec:
 YAML
 }
 
-###############################################################################################
+################################################################################
 # ExternalDNS installation
-###############################################################################################
+################################################################################
 
 # ExternalDNS IAM access policy
 resource "aws_iam_policy" "external_dns" {
@@ -435,9 +436,9 @@ EOF
   ]
 }
 
-###############################################################################################
+################################################################################
 # ArgoCD installation
-###############################################################################################
+################################################################################
 
 resource "helm_release" "argocd" {
   depends_on       = [helm_release.aws_load_balancer_controller, helm_release.external_dns]
@@ -448,37 +449,6 @@ resource "helm_release" "argocd" {
   repository       = "https://argoproj.github.io/argo-helm"
   version          = "6.6.0"
   cleanup_on_fail  = true
-
-  #  values = [
-  #    <<EOF
-  #  global:
-  #    domain: "${var.argocd_subdomain}.${var.domain}"
-  #  dex:
-  #    enabled: false
-  #  server:
-  #    extraArgs:
-  #      - --insecure
-  #  ingress:
-  #    enabled: true
-  #    controller: aws
-  #    annotations:
-  #      alb.ingress.kubernetes.io/scheme: internet-facing
-  #      alb.ingress.kubernetes.io/target-type: ip
-  #      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
-  #      alb.ingress.kubernetes.io/ssl-redirect: '443'
-  #    ingressClassName: alb
-  #    extraRules:
-  #      - http:
-  #          paths:
-  #            - path: /
-  #              pathType: Prefix
-  #              backend:
-  #                service:
-  #                  name: argocd-server
-  #                  port:
-  #                    number: 80
-  #  EOF
-  #  ]
 
   set {
     name  = "global.domain"
@@ -496,6 +466,9 @@ resource "helm_release" "argocd" {
   }
 }
 
+## Deploy an ingress for argoCD
+## Warning a `terraform destroy` run will not delete this ingress correctly
+## Run `kubectl delete` on the ingress while the cluster is running first
 #resource "kubectl_manifest" "argocd" {
 #  depends_on = [helm_release.argocd]
 #  yaml_body  = <<YAML
